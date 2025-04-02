@@ -15,6 +15,11 @@ stages:
       hash: md5
       md5: b93aea27ba45f8b24bdd52928f1f2b99
       size: 2564
+    params:
+      params.yaml:
+        features.chi2percentile: 50
+        features.test_path: data/adult.test
+        features.train_path: data/adult.data
     outs:
     - path: data/pipeline.pkl
       hash: md5
@@ -28,3 +33,19 @@ stages:
       hash: md5
       md5: adf63b6ce20f7ee74f63d5dabb325226
       size: 10829967
+  preprocess:
+    cmd: python src/preprocessing.py
+    deps:
+    - path: data/cars24data.csv
+      hash: md5
+      md5: 43543625fbaee061f56ff71eb3d0d364
+      size: 113344
+    - path: src/preprocessing.py
+      hash: md5
+      md5: 3b1092cc78e9cdc5cbdd65c7bdcc59b9
+      size: 706
+    outs:
+    - path: data/processed_data.csv
+      hash: md5
+      md5: 2e6996453fd766612777756d9841c2da
+      size: 73580
