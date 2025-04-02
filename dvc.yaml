@@ -21,5 +21,4 @@ stages:
       - data/cars24data.csv
       - src/preprocessing.py
     outs:
-      - data/pipeline.pkl
       - data/processed_data.csv
