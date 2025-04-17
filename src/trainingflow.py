@@ -2,9 +2,13 @@ from metaflow import FlowSpec, step, Parameter
 import pandas as pd
 import mlflow
 import mlflow.sklearn
+from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
+import joblib
+import os
 
 
 class TrainingFlow(FlowSpec):
@@ -15,50 +19,62 @@ class TrainingFlow(FlowSpec):
 
     @step
     def start(self):
-        from sklearn.datasets import load_iris
-        print("Starting training pipeline...")
-
+        print("Loading Iris dataset")
         data = load_iris()
-        self.df = pd.DataFrame(data["data"], columns=data["feature_names"])
-        self.df["target"] = data["target"]
-
+        df = pd.DataFrame(data["data"], columns=data["feature_names"])
+        df["target"] = data["target"]
+        self.df = df
         self.next(self.preprocess)
 
     @step
     def preprocess(self):
-        print("Preprocessing data...")
-        X = self.df.drop('target', axis=1)
-        y = self.df['target']
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+        print("Splitting and scaling data")
+
+        X = self.df.drop("target", axis=1)
+        y = self.df["target"]
+
+        X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=self.test_size, random_state=self.seed
         )
+
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+
+        # Store for future steps
+        self.X_train = X_train_scaled
+        self.X_test = X_test_scaled
+        self.y_train = y_train.tolist()
+        self.y_test = y_test.tolist()
+
+        # Optional: save scaler if needed
+        os.makedirs("artifacts", exist_ok=True)
+        joblib.dump(scaler, "artifacts/scaler.joblib")
+
         self.next(self.train)
 
     @step
     def train(self):
-        print("Training model...")
-        self.model = LogisticRegression(
+        print("Training Logistic Regression")
+        model = LogisticRegression(
             max_iter=self.max_iter, random_state=self.seed)
-        self.model.fit(self.X_train, self.y_train)
+        model.fit(self.X_train, self.y_train)
+        self.model = model
         self.next(self.evaluate)
 
     @step
     def evaluate(self):
-        print("Evaluating model...")
+        print("Evaluating model")
+
         y_pred = self.model.predict(self.X_test)
         self.accuracy = accuracy_score(self.y_test, y_pred)
-        print(f"Model accuracy: {self.accuracy:.4f}")
+        print(f"Accuracy: {self.accuracy:.4f}")
         self.next(self.register)
 
     @step
     def register(self):
-        import mlflow
-        import mlflow.sklearn
+        print("Registering model with MLflow")
 
-        print("Registering model to MLflow...")
-
-        # Use a local MLflow tracking URI
-        # stores runs locally in filesystem
         mlflow.set_tracking_uri("file:///tmp/mlruns")
         mlflow.set_experiment("metaflow_training_example")
 
@@ -71,14 +87,13 @@ class TrainingFlow(FlowSpec):
                 artifact_path="model",
                 registered_model_name="IrisClassifier"
             )
-
-        print("Model registered in MLflow!")
+        print("Model registered successfully.")
         self.next(self.end)
 
     @step
     def end(self):
-        print("Training pipeline complete.")
+        print("Training pipeline completed")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     TrainingFlow()
