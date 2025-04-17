@@ -1,12 +1,12 @@
 from metaflow import FlowSpec, step, Parameter
 import pandas as pd
+import numpy as np
 import mlflow
 import mlflow.sklearn
-from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import mean_squared_error
 import joblib
 import os
 
@@ -15,39 +15,34 @@ class TrainingFlow(FlowSpec):
 
     seed = Parameter("seed", default=42)
     test_size = Parameter("test_size", default=0.2)
-    max_iter = Parameter("max_iter", default=100)
 
     @step
     def start(self):
-        print("Loading Iris dataset")
-        data = load_iris()
-        df = pd.DataFrame(data["data"], columns=data["feature_names"])
-        df["target"] = data["target"]
-        self.df = df
+        df = pd.read_csv(
+            "/Users/eunicetu/Downloads/MSDS/MSDS603-mlops/data/cars24data.csv")
+        # basic numeric feature selection
+        df = df.select_dtypes(include=["float64", "int64"])
+        df = df.dropna()
+
+        self.target_col = "selling_price" if "selling_price" in df.columns else df.columns[-1]
+
+        self.X = df.drop(self.target_col, axis=1)
+        self.y = df[self.target_col]
+        print(f"Data shape: {self.X.shape}")
         self.next(self.preprocess)
 
     @step
     def preprocess(self):
-        print("Splitting and scaling data")
-
-        X = self.df.drop("target", axis=1)
-        y = self.df["target"]
-
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.seed
+            self.X, self.y, test_size=self.test_size, random_state=self.seed
         )
 
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        self.X_train = scaler.fit_transform(X_train)
+        self.X_test = scaler.transform(X_test)
+        self.y_train = y_train.values
+        self.y_test = y_test.values
 
-        # Store for future steps
-        self.X_train = X_train_scaled
-        self.X_test = X_test_scaled
-        self.y_train = y_train.tolist()
-        self.y_test = y_test.tolist()
-
-        # Optional: save scaler if needed
         os.makedirs("artifacts", exist_ok=True)
         joblib.dump(scaler, "artifacts/scaler.joblib")
 
@@ -55,45 +50,38 @@ class TrainingFlow(FlowSpec):
 
     @step
     def train(self):
-        print("Training Logistic Regression")
-        model = LogisticRegression(
-            max_iter=self.max_iter, random_state=self.seed)
+        model = LinearRegression()
         model.fit(self.X_train, self.y_train)
         self.model = model
         self.next(self.evaluate)
 
     @step
     def evaluate(self):
-        print("Evaluating model")
-
-        y_pred = self.model.predict(self.X_test)
-        self.accuracy = accuracy_score(self.y_test, y_pred)
-        print(f"Accuracy: {self.accuracy:.4f}")
+        preds = self.model.predict(self.X_test)
+        self.rmse = np.sqrt(mean_squared_error(self.y_test, preds))
+        print(f"Test RMSE: {self.rmse:.2f}")
         self.next(self.register)
 
     @step
     def register(self):
-        print("Registering model with MLflow")
-
         mlflow.set_tracking_uri("file:///tmp/mlruns")
-        mlflow.set_experiment("metaflow_training_example")
+        mlflow.set_experiment("used_car_price_prediction")
 
         with mlflow.start_run():
-            mlflow.log_param("max_iter", self.max_iter)
             mlflow.log_param("test_size", self.test_size)
-            mlflow.log_metric("accuracy", self.accuracy)
+            mlflow.log_metric("rmse", self.rmse)
             mlflow.sklearn.log_model(
                 self.model,
                 artifact_path="model",
-                registered_model_name="IrisClassifier"
+                registered_model_name="UsedCarPriceRegressor"
             )
-        print("Model registered successfully.")
+        print("Model logged.")
         self.next(self.end)
 
     @step
     def end(self):
-        print("Training pipeline completed")
+        print("Training complete.")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     TrainingFlow()
