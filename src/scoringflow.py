@@ -2,7 +2,7 @@ from metaflow import FlowSpec, step, Parameter
 import pandas as pd
 import mlflow
 import mlflow.sklearn
-from sklearn.datasets import load_wine
+from sklearn.datasets import load_iris
 from sklearn.preprocessing import StandardScaler
 
 
@@ -13,35 +13,42 @@ class ScoringFlow(FlowSpec):
 
     @step
     def start(self):
-        print("Step 1: Ingesting new (unseen) data from a different dataset...")
+        print("Load Iris test data for scoring")
 
-        # Load Wine dataset (not used in training at all)
-        data = load_wine()
+        # Use the same dataset and features as training
+        data = load_iris()
         df = pd.DataFrame(data["data"], columns=data["feature_names"])
         df["target"] = data["target"]
 
-        self.holdout = df.sample(n=10, random_state=123).reset_index(drop=True)
-        self.X_raw = self.holdout.drop("target", axis=1)
-        self.y_true = self.holdout["target"].tolist()
+        from sklearn.model_selection import train_test_split
+        _, self.df_test = train_test_split(df, test_size=0.2, random_state=42)
 
-        print(f"Loaded {len(self.X_raw)} rows of new data from Wine dataset.")
+        self.X_raw = self.df_test.drop("target", axis=1).copy()
+        self.y_true = self.df_test["target"].tolist()
+
+        print(f"Loaded {len(self.X_raw)} rows for testing.")
         self.next(self.transform)
 
     @step
     def transform(self):
-        print("Step 2: Applying basic feature scaling (standardization)...")
+        print("Apply standardization using training distribution")
+
+        # Load full training data to get same scaler statistics
+        data = load_iris()
+        df = pd.DataFrame(data["data"], columns=data["feature_names"])
+        df["target"] = data["target"]
+        X_train = df.drop("target", axis=1)
 
         scaler = StandardScaler()
-        self.X_processed = scaler.fit_transform(self.X_raw)
+        scaler.fit(X_train)  # fit only on training set
+        self.X_processed = scaler.transform(self.X_raw)
 
         self.next(self.load_model)
 
     @step
     def load_model(self):
-        print(
-            f"Step 3: Loading trained model from MLflow registry: {self.model_name}")
+        print(f"Load model from MLflow registry: {self.model_name}")
 
-        # Use local MLflow URI
         mlflow.set_tracking_uri("file:///tmp/mlruns")
         model_uri = f"models:/{self.model_name}/latest"
         self.model = mlflow.sklearn.load_model(model_uri)
@@ -50,14 +57,9 @@ class ScoringFlow(FlowSpec):
 
     @step
     def predict(self):
-        print("Step 4: Making predictions on new data...")
+        print("Predict on standardized test data")
 
-        try:
-            self.predictions = self.model.predict(self.X_processed).tolist()
-        except Exception as e:
-            self.predictions = []
-            print(
-                f"Prediction failed due to mismatched feature dimensions: {e}")
+        self.predictions = self.model.predict(self.X_processed).tolist()
 
         print("\n--- Predictions vs Ground Truth ---")
         for i, (true, pred) in enumerate(zip(self.y_true, self.predictions)):
@@ -67,7 +69,7 @@ class ScoringFlow(FlowSpec):
 
     @step
     def end(self):
-        print("Step 5: Scoring flow completed.")
+        print("Scoring flow complete")
 
 
 if __name__ == '__main__':
