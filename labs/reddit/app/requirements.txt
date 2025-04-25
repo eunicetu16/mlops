@@ -1,0 +1,12 @@
+# Core dependencies
+fastapi==0.115.12
+uvicorn==0.34.2
+
+# ML stack (Python 3.9 compatible versions)
+numpy==1.24.4  # Last stable version for Py3.9
+scikit-learn==1.4.0  # Newest compatible with numpy 1.24.x
+joblib==1.4.2
+pandas==2.0.3  # Last Py3.9-compatible version
+
+# Pydantic (optional - only include if needed)
+pydantic==2.11.3
